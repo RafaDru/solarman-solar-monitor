@@ -1,0 +1,10 @@
+{
+  "appId": "SEU_APP_ID_AQUI",
+  "appSecret": "SEU_APP_SECRET_AQUI",
+  "email": "seu_email@exemplo.com",
+  "password": "sua_senha",
+  "notify": {
+    "webhook_url": "",
+    "email": "seu_email@exemplo.com"
+  }
+}
