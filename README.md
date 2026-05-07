@@ -1,72 +1,125 @@
 # SOLARMAN Solar Monitor
 
-Monitoramento proativo de geração de energia solar via API SOLARMAN (v1.1.6).
+Monitoramento proativo de geração solar com coleta histórica em PostgreSQL.
 
-## Como obter as chaves de API
+## Arquitetura
 
-Envie email para `service@solarmanpv.com` solicitando acesso à OpenAPI.
-Informe que é um usuário residencial com microinversores Deye e 7 painéis.
+```
+┌─────────────┐     ┌─────────────────┐     ┌────────────┐
+│  SOLARMAN   │────▶│  monitor.py     │────▶│ PostgreSQL │
+│  API v1.1.6 │     │  (Cloud Run)    │     │ (GCP DB)   │
+└─────────────┘     └────────┬────────┘     └──────┬─────┘
+                             │                    │
+                             ▼                    ▼
+                    ┌─────────────────┐     ┌────────────┐
+                    │  ntfy.sh        │     │   Alerta   │
+                    │  (notificacao)  │     │  24h sem   │
+                    └─────────────────┘     │  geracao   │
+                                            └────────────┘
+```
+
+## Coleta de Dados
+
+### API 4.4 - Estações
+- ID, nome, endereço, capacidade instalada (kWp)
+- Coordenadas geográficas, tipo de conexão
+
+### API 4.5 - Tempo Real da Usina
+- Geração, consumo, rede, bateria (W)
+- Irradiação solar, SOC bateria
+
+### API 3.3 - Microinversores (por dispositivo)
+- DC: tensão, corrente, potência PV1-PV4 (V, A, W)
+- AC: tensão, corrente, potência de saída, frequência
+- Produção total (kWh) e diária (kWh)
+- Temperatura do inversor, status da rede
+
+### API 4.2 - Dispositivos
+- Lista de microinversores e coletores
+- Status de conexão (online/offline)
+
+## Requisitos
+
+- Python 3.10+
+- PostgreSQL 14+
 
 ## Configuração
 
-### 1. Defina as variáveis de ambiente
+### Variáveis de Ambiente
 
-**PowerShell (Windows):**
 ```powershell
+# API SOLARMAN
 $env:SOLARMAN_APIID = "seu_app_id"
 $env:SOLARMAN_APKKEY = "seu_app_secret"
-$env:SOLARMAN_EMAIL = "seu_email_cadastrado"
+$env:SOLARMAN_EMAIL = "seu_email"
 $env:SOLARMAN_PASSWORD = "sua_senha"
-$env:SOLARMAN_WEBHOOK = "https://hooks.exemplo.com/alertas"  # opcional
+
+# PostgreSQL (GCP Cloud SQL)
+$env:DB_HOST = "ip_do_servidor"
+$env:DB_PORT = "5432"
+$env:DB_NAME = "solarman"
+$env:DB_USER = "postgres"
+$env:DB_PASSWORD = "senha"
+
+# Notificação (opcional)
+$env:NTFY_TOPIC = "nome_do_topico_ntfy"
 ```
 
-**Linux/macOS:**
-```bash
-export SOLARMAN_APIID="seu_app_id"
-export SOLARMAN_APKKEY="seu_app_secret"
-export SOLARMAN_EMAIL="seu_email"
-export SOLARMAN_PASSWORD="sua_senha"
-```
-
-Ou copie `.env.sample` para `.env` (não versionado) e use `python-dotenv`.
-
-### 2. Instale as dependências
+### Instalar dependências
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Execute
+### Criar banco de dados
+
+```bash
+psql -h IP_DO_SERVIDOR -U postgres -d postgres -c "CREATE DATABASE solarman;"
+psql -h IP_DO_SERVIDOR -U postgres -d solarman -f schema.sql
+```
+
+## Execução
 
 ```bash
 python monitor.py
 ```
 
-## Agendamento
+## Deploy GCP
 
-**Windows (Task Scheduler):** crie uma tarefa diária executando `python monitor.py`.
+### Cloud Run (servidorless, ~$0-2/mês)
 
-**Linux (cron):**
-```cron
-0 8 * * * cd /caminho/solarman-solar-monitor && python monitor.py
+1. Habilite Cloud Run, Cloud SQL, Secret Manager no GCP Console
+2. Configure Cloud SQL (PostgreSQL) com usuário e senha
+3. Crie secrets no Secret Manager para cada variável de ambiente
+4. Deploy:
+
+```bash
+gcloud run deploy solarman-monitor \
+  --source . \
+  --region southamerica-east1 \
+  --set-env-vars "DB_HOST=/cloudsql/projeto:regiao:instancia" \
+  --set-secrets "SOLARMAN_APIID:latest,..." \
+  --add-cloudsql-instances "projeto:regiao:instancia"
 ```
 
-## Alerta de falha
+5. Cloud Scheduler: disparador diário às 20:00 BRT
 
-O script mantém um arquivo `state.json` com o timestamp da última geração.
-Se a geração ficar 24h sem produzir energia, um alerta é disparado via webhook.
+```bash
+gcloud scheduler jobs create http solarman-daily \
+  --schedule="0 20 * * *" \
+  --uri="https://URL_DO_CLOUD_RUN" \
+  --time-zone="America/Sao_Paulo"
+```
 
-## Estrutura da API
+## Schema do Banco
 
-Base URL: `https://globalapi.solarmanpv.com`
-
-| Etapa | Endpoint | Descrição |
-|-------|----------|-----------|
-| 1 | `POST /account/v1.0/token?appId=X` | Obter token (password em SHA256) |
-| 2 | `POST /station/v1.0/list` | Listar estações |
-| 3 | `POST /station/v1.0/realtime` | Dados em tempo real da estação |
-
-Docs: https://doc.solarmanpv.com
+Ver `schema.sql` para a estrutura completa com:
+- `stations` - dados da usina
+- `devices` - microinversores e coletores
+- `readings_realtime` - snapshot horário
+- `device_readings` - leitura atual por inversor
+- `daily_production` - produção agregada diária
+- `alerts` - alertas de falha
 
 ## Repositório
 
