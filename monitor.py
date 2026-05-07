@@ -101,20 +101,86 @@ def extract_field(flat, keys, default=None):
     return default
 
 
-def send_alert(title, message):
+def send_daily_summary(conn, station_name):
+    cur = conn.cursor()
+    try:
+        import psycopg2.extras
+    except ImportError:
+        return
+
+    topic = os.getenv("NTFY_TOPIC")
+    if not topic:
+        return
+
+    cur.execute("""
+        SELECT SUM(daily_production_kwh)
+        FROM device_readings dr
+        JOIN devices d ON d.id = dr.device_id
+        WHERE recorded_at::date = CURRENT_DATE
+          AND d.device_type IN ('MICRO_INVERTER', 'INVERTER')
+    """)
+    today_kwh = cur.fetchone()[0] or 0
+
+    cur.execute("""
+        SELECT SUM(daily_production_kwh)
+        FROM device_readings dr
+        JOIN devices d ON d.id = dr.device_id
+        WHERE DATE_TRUNC('month', recorded_at) = DATE_TRUNC('month', CURRENT_DATE)
+          AND d.device_type IN ('MICRO_INVERTER', 'INVERTER')
+    """)
+    month_kwh = cur.fetchone()[0] or 0
+
+    avg_daily = float(os.getenv("AVG_DAILY_KWH", "18.0"))
+    today_val = float(today_kwh)
+
+    if today_val < avg_daily * 0.7:
+        status = "MUITO ABAIXO"
+    elif today_val < avg_daily:
+        status = "ABAIXO DA MEDIA"
+    elif today_val > avg_daily * 1.2:
+        status = "MUITO ACIMA"
+    elif today_val > avg_daily:
+        status = "ACIMA DA MEDIA"
+    else:
+        status = "NA MEDIA"
+
+    emoji = {"MUITO ABAIXO": "🔴", "ABAIXO DA MEDIA": "🟡",
+             "NA MEDIA": "🟢", "ACIMA DA MEDIA": "🟢",
+             "MUITO ACIMA": "🔵"}.get(status, "⚪")
+
+    msg = (
+        f"{emoji} SOLARMAN - Resumo Diario\n\n"
+        f"Hoje: {today_val:.2f} kWh ({status})\n"
+        f"Mes: {float(month_kwh):.2f} kWh\n"
+        f"Referencia diaria: {avg_daily:.1f} kWh"
+    )
+
+    try:
+        resp = requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=msg.encode("utf-8"),
+            headers={"Title": "SOLARMAN - Resumo", "Priority": "default"},
+            timeout=10
+        )
+        print(f"  Resumo diario enviado: {resp.status_code}")
+    except Exception as e:
+        print(f"  Erro ao enviar resumo: {e}")
+
+
+def send_alert(alert_title, message):
     ntfy_url = os.getenv("NTFY_TOPIC")
     if not ntfy_url:
         return
     try:
         resp = requests.post(
             f"https://ntfy.sh/{ntfy_url}",
-            data=f"{title}\n\n{message}".encode("utf-8"),
-            headers={"Topic": ntfy_url, "Title": title, "Priority": "high"},
+            data=f"{alert_title}\n\n{message}".encode("utf-8"),
+            headers={"Title": alert_title, "Priority": "high"},
             timeout=10
         )
-        print(f"  Notificacao enviada via ntfy.sh: {resp.status_code}")
+        print(f"  Alerta enviado: {resp.status_code}")
     except Exception as e:
-        print(f"  Erro ao enviar notificacao: {e}")
+        print(f"  Erro ao enviar alerta: {e}")
 
 
 def check_generation_failure(now, state_file, station_id):
@@ -423,6 +489,7 @@ def main():
         return
 
     run(conn, token, station_list)
+    send_daily_summary(conn, station_list[0].get("name", "Usina"))
     conn.close()
     print(f"\n  Coleta finalizada com sucesso!\n")
 
