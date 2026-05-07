@@ -29,7 +29,7 @@ doc.solarmanpv.com
 ## Variáveis de Ambiente
 | Variável | Descrição |
 |----------|-----------|
-| SOLARMAN_APIKEY | appId fornecido pela SOLARMAN |
+| SOLARMAN_APIID | appId fornecido pela SOLARMAN |
 | SOLARMAN_APKKEY | appSecret fornecido pela SOLARMAN |
 | SOLARMAN_EMAIL | email de login no app SOLARMAN |
 | SOLARMAN_PASSWORD | senha de login no app SOLARMAN |

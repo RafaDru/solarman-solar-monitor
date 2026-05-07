@@ -1,5 +1,5 @@
 {
-  "appId": "${SOLARMAN_APIKEY}",
+  "appId": "${SOLARMAN_APIID}",
   "appSecret": "${SOLARMAN_APKKEY}",
   "email": "${SOLARMAN_EMAIL}",
   "password": "${SOLARMAN_PASSWORD}",

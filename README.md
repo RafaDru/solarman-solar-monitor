@@ -13,7 +13,7 @@ Informe que é um usuário residencial com microinversores Deye e 7 painéis.
 
 **PowerShell (Windows):**
 ```powershell
-$env:SOLARMAN_APIKEY = "seu_app_id"
+$env:SOLARMAN_APIID = "seu_app_id"
 $env:SOLARMAN_APKKEY = "seu_app_secret"
 $env:SOLARMAN_EMAIL = "seu_email_cadastrado"
 $env:SOLARMAN_PASSWORD = "sua_senha"
@@ -22,7 +22,7 @@ $env:SOLARMAN_WEBHOOK = "https://hooks.exemplo.com/alertas"  # opcional
 
 **Linux/macOS:**
 ```bash
-export SOLARMAN_APIKEY="seu_app_id"
+export SOLARMAN_APIID="seu_app_id"
 export SOLARMAN_APKKEY="seu_app_secret"
 export SOLARMAN_EMAIL="seu_email"
 export SOLARMAN_PASSWORD="sua_senha"

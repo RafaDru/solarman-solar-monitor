@@ -10,7 +10,7 @@ import requests
 BASE_URL = "https://globalapi.solarmanpv.com"
 
 ENV_MAP = {
-    "appId": "SOLARMAN_APIKEY",
+    "appId": "SOLARMAN_APIID",
     "appSecret": "SOLARMAN_APKKEY",
     "email": "SOLARMAN_EMAIL",
     "password": "SOLARMAN_PASSWORD",
