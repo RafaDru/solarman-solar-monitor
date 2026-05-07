@@ -1,10 +1,7 @@
 {
-  "appId": "SEU_APP_ID_AQUI",
-  "appSecret": "SEU_APP_SECRET_AQUI",
-  "email": "seu_email@exemplo.com",
-  "password": "sua_senha",
-  "notify": {
-    "webhook_url": "",
-    "email": "seu_email@exemplo.com"
-  }
+  "appId": "${SOLARMAN_APIKEY}",
+  "appSecret": "${SOLARMAN_APKKEY}",
+  "email": "${SOLARMAN_EMAIL}",
+  "password": "${SOLARMAN_PASSWORD}",
+  "webhook_url": "${SOLARMAN_WEBHOOK}"
 }

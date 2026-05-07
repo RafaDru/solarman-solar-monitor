@@ -1,127 +1,160 @@
 #!/usr/bin/env python3
-"""SOLARMAN Solar Monitor - Monitoramento proativo de geração solar"""
+"""SOLARMAN Solar Monitor - Monitoramento proativo de geração solar via API v1.1.6"""
 
 import hashlib
 import json
 import os
-import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import requests
 
 BASE_URL = "https://globalapi.solarmanpv.com"
-TOKEN_URL = f"{BASE_URL}/account/v1.0/token"
-STATION_LIST_URL = f"{BASE_URL}/station/v1.0/list"
-REALTIME_URL = f"{BASE_URL}/station/v1.0/realtime"
-HISTORICAL_URL = f"{BASE_URL}/station/v1.0/historical"
+
+ENV_MAP = {
+    "appId": "SOLARMAN_APIKEY",
+    "appSecret": "SOLARMAN_APKKEY",
+    "email": "SOLARMAN_EMAIL",
+    "password": "SOLARMAN_PASSWORD",
+}
+
 
 def sha256_hash(text):
     return hashlib.sha256(text.encode()).hexdigest()
 
+
 def load_config():
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    with open(config_path, "r") as f:
-        return json.load(f)
+    config = {}
+    for key, env_var in ENV_MAP.items():
+        value = os.getenv(env_var)
+        if not value:
+            raise SystemExit(
+                f"Erro: variável de ambiente {env_var} não definida.\n"
+                "Defina-a com:\n"
+                f'  $env:{env_var} = "seu_valor"  (PowerShell)\n'
+                "Ou copie .env.sample para .env e use python-dotenv."
+            )
+        config[key] = value
+    return config
+
+
+def api_post(path, token=None, body=None):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"bearer {token}"
+    url = f"{BASE_URL}{path}"
+    resp = requests.post(url, headers=headers, json=body or {})
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError:
+        print(f"  Erro HTTP {resp.status_code}: {resp.text}")
+        raise
+    return resp.json()
+
 
 def get_token(config):
-    payload = {
+    body = {
         "appSecret": config["appSecret"],
         "email": config["email"],
-        "password": sha256_hash(config["password"])
+        "password": sha256_hash(config["password"]),
     }
-    headers = {"Content-Type": "application/json"}
-    resp = requests.post(
-        f"{TOKEN_URL}?appId={config['appId']}&language=en",
-        headers=headers,
-        json=payload
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+    data = api_post(f"/account/v1.0/token?appId={config['appId']}&language=en", body=body)
+    return data["access_token"]
+
 
 def get_station_list(token):
-    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(REALTIME_URL.replace("/realtime", "/list"), headers=headers, json={"size": 20, "page": 1})
-    resp.raise_for_status()
-    return resp.json().get("stationList", [])
+    data = api_post("/station/v1.0/list", token=token, body={"page": 1, "size": 20})
+    return data.get("stationList", [])
+
 
 def get_realtime_data(token, station_id):
-    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(
-        REALTIME_URL,
-        headers=headers,
-        json={"stationId": station_id}
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return api_post("/station/v1.0/realTime", token=token, body={"stationId": station_id})
 
-def get_historical_data(token, station_id, date):
-    headers = {"Authorization": f"bearer {token}", "Content-Type": "application/json"}
-    resp = requests.post(
-        HISTORICAL_URL,
-        headers=headers,
-        json={"stationId": station_id, "date": date}
-    )
-    resp.raise_for_status()
-    return resp.json()
 
-def send_alert(message, config):
-    if config.get("notify", {}).get("webhook_url"):
+def send_alert(message):
+    webhook = os.getenv("SOLARMAN_WEBHOOK")
+    if webhook:
         try:
-            requests.post(config["notify"]["webhook_url"], json={"text": message}, timeout=10)
+            requests.post(webhook, json={"text": message}, timeout=10)
         except Exception as e:
-            print(f"Erro ao enviar webhook: {e}")
-    if config.get("notify", {}).get("email"):
-        print(f"ALERTA: {message}")
+            print(f"  Erro ao enviar webhook: {e}")
+    print(f"\n  >>> ALERTA: {message}\n")
 
-def check_generation(station_id, token, config, state_file):
+
+def check_generation(station_id, token, state_file):
     data = get_realtime_data(token, station_id)
     now = datetime.now()
-    generation_power = data.get("generationPower", 0)
-    last_update = data.get("lastUpdateTime", "")
 
-    print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] Geração atual: {generation_power}W | Última atualização: {last_update}")
+    gen_power = data.get("generationPower", 0)
+    last_update_ts = data.get("lastUpdateTime")
+
+    if last_update_ts:
+        last_update = datetime.fromtimestamp(float(last_update_ts))
+        last_update_str = last_update.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        last_update_str = "N/A"
+
+    print(f"  Geração atual: {gen_power}W")
+    print(f"  Última atualização: {last_update_str}")
 
     state = {}
     if os.path.exists(state_file):
-        with open(state_file, "r") as f:
+        with open(state_file) as f:
             state = json.load(f)
 
     last_gen_time = state.get("last_generation_time")
     alert_sent = state.get("alert_sent_24h", False)
 
-    if generation_power and generation_power > 0:
+    try:
+        gen_val = float(gen_power) if gen_power is not None else 0
+    except (ValueError, TypeError):
+        gen_val = 0
+
+    if gen_val > 0:
         state["last_generation_time"] = now.isoformat()
         state["alert_sent_24h"] = False
+        print("  Status: Gerando energia OK")
     else:
         if last_gen_time:
             last_time = datetime.fromisoformat(last_gen_time)
-            hours_without = (now - last_time).total_seconds() / 3600
-            if hours_without >= 24 and not alert_sent:
-                msg = f"ALERTA: Sem geração solar há {hours_without:.1f} horas na estação {station_id}!"
-                print(msg)
-                send_alert(msg, config)
+            hours = (now - last_time).total_seconds() / 3600
+            print(f"  Status: Sem geração há {hours:.1f}h")
+            if hours >= 24 and not alert_sent:
+                msg = (
+                    f"Sem geração solar há {hours:.1f} horas "
+                    f"(estação {station_id})!"
+                )
+                send_alert(msg)
                 state["alert_sent_24h"] = True
         else:
             state["last_generation_time"] = now.isoformat()
+            print("  Status: Primeira execução - monitoramento iniciado")
 
     with open(state_file, "w") as f:
-        json.dump(state, f)
+        json.dump(state, f, indent=2)
+
 
 def main():
     config = load_config()
     state_file = os.path.join(os.path.dirname(__file__), "state.json")
 
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] SOLARMAN Monitor")
+    print(f"  Autenticando...")
     token = get_token(config)
+    print(f"  Token obtido com sucesso")
+
+    print(f"  Buscando estação...")
     stations = get_station_list(token)
 
     if not stations:
-        print("Nenhuma estação encontrada.")
+        print("  Nenhuma estação encontrada.")
         return
 
-    station_id = stations[0]["id"]
-    print(f"Monitorando estação ID: {station_id}")
+    st = stations[0]
+    station_id = st["id"]
+    station_name = st.get("name", "Sem nome")
+    print(f"  Estação: {station_name} (ID: {station_id})")
 
-    check_generation(station_id, token, config, state_file)
+    check_generation(station_id, token, state_file)
+
 
 if __name__ == "__main__":
     main()
