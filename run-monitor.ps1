@@ -6,6 +6,7 @@ $env:DB_PORT = "5432"
 $env:DB_NAME = "solarman"
 $env:DB_USER = "postgres"
 $env:DB_PASSWORD = "postgres123"
+$env:NTFY_TOPIC = "solarman-rafael-acb4b9230db5ff2e2b18"
 
 $ErrorActionPreference = "Stop"
 
